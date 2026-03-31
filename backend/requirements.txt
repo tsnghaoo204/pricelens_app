@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+pydantic
+pydantic-settings
+requests
+torch
+transformers
+Pillow
+psycopg2-binary
+pgvector
+sqlalchemy
+python-dotenv
+PyJWT
+passlib[bcrypt]
