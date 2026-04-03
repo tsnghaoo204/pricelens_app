@@ -12,8 +12,10 @@ def _create_connection():
         user=settings.DB_USER,
         password=settings.DB_PASSWORD,
         host=settings.DB_HOST,
-        port=settings.DB_PORT
+        port=settings.DB_PORT,
+        options="-c client_encoding=UTF8"
     )
+    conn.set_client_encoding("UTF8")
     register_vector(conn)  # Đăng ký Vector type để đọc/ghi VECTOR(512)
     return conn
 
@@ -70,10 +72,14 @@ def init_db():
             shop_name VARCHAR(255),
             price INTEGER,
             image_url TEXT,
+            detail_link TEXT,
             affiliate_link TEXT,
             embedding VECTOR(512),
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+
+        ALTER TABLE decor_items
+        ADD COLUMN IF NOT EXISTS detail_link TEXT;
 
         -- Index HNSW cho tìm kiếm vector Cosine Similarity (cực nhanh)
         CREATE INDEX IF NOT EXISTS idx_decor_embedding
