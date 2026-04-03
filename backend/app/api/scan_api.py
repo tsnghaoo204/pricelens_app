@@ -5,8 +5,9 @@ import torch
 from transformers import CLIPProcessor, CLIPModel
 
 from app.core.database import get_db
+from app.models.schemas import ScanResponse, ScanResultItem
+from app.services.affiliate_service import generate_affiliate_link
 from app.services.search_service import search_by_embedding
-from app.models.schemas import ScanResponse
 
 router = APIRouter(tags=["AI Scan"])
 
@@ -21,6 +22,12 @@ def _image_to_embedding(image_bytes: bytes) -> list:
     inputs = _processor(images=img, return_tensors="pt")
     with torch.no_grad():
         features = _model.get_image_features(**inputs)
+
+    if hasattr(features, "pooler_output"):
+        features = features.pooler_output
+    elif hasattr(features, "image_embeds"):
+        features = features.image_embeds
+
     return features.squeeze().tolist()
 
 
@@ -41,7 +48,23 @@ async def scan_product(
 
     image_bytes = await file.read()
     embedding = _image_to_embedding(image_bytes)
-    results = search_by_embedding(embedding, top_k=top_k)
+    raw_results = search_by_embedding(embedding, top_k=top_k)
+
+    results = []
+    for item in raw_results:
+        affiliate_link = item.get("affiliate_link")
+        if not affiliate_link and item.get("detail_link"):
+            affiliate_link = generate_affiliate_link(item["detail_link"])
+
+        results.append(ScanResultItem(
+            id=item["id"],
+            title=item["title"],
+            shop_name=item.get("shop_name"),
+            price=item.get("price"),
+            image_url=item.get("image_url"),
+            affiliate_link=affiliate_link,
+            similarity_score=item["similarity_score"],
+        ))
 
     return ScanResponse(results=results, total=len(results))
 
@@ -58,13 +81,20 @@ def go_to_affiliate(item_id: str):
 
     with get_db() as (conn, cur):
         cur.execute(
-            "SELECT affiliate_link FROM decor_items WHERE id = %s",
+            "SELECT affiliate_link, detail_link FROM decor_items WHERE id = %s",
             (item_id,)
         )
         row = cur.fetchone()
 
-    if not row or not row["affiliate_link"]:
+    if not row:
         raise HTTPException(status_code=404, detail="Sản phẩm không tồn tại")
 
+    target_url = row["affiliate_link"]
+    if not target_url and row.get("detail_link"):
+        target_url = generate_affiliate_link(row["detail_link"])
+
+    if not target_url:
+        raise HTTPException(status_code=404, detail="Sản phẩm không có link affiliate")
+
     # TODO: Lưu log click vào DB để phân tích sau
-    return RedirectResponse(url=row["affiliate_link"], status_code=302)
+    return RedirectResponse(url=target_url, status_code=302)
